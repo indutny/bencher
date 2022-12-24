@@ -25,7 +25,7 @@ npm install -g @indutny/bencher
 
 ```js
 // benchmark.js
-export const name = 'benchmark name';
+export const name = 'runner';
 
 // Function to benchmark
 export default () => {
