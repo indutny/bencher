@@ -1,7 +1,6 @@
 # @indutny/bencher
 
 [![npm](https://img.shields.io/npm/v/@indutny/bencher)](https://www.npmjs.com/package/@indutny/bencher)
-[![size](https://img.shields.io/bundlephobia/minzip/@indutny/bencher)](https://bundlephobia.com/result?p=@indutny/bencher)
 ![CI Status](https://github.com/indutny/bencher/actions/workflows/test.yml/badge.svg)
 
 Sneaky equals comparison between objects that checks only the properties that
