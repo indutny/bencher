@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
 import { realpath } from 'fs/promises';
+import yargs from 'yargs';
+import { hideBin } from 'yargs/helpers';
 
 export type RunnerOptions = Readonly<{
   duration: number; // seconds
-  sweepWidth: number;
   samples: number;
+  sweepWidth: number;
   warmUpIterations: number;
 }>;
 
@@ -16,18 +18,44 @@ export interface RunnerModule {
   default(): number;
 }
 
-async function main() {
+async function main(): Promise<void> {
+  const argv = await yargs(hideBin(process.argv))
+    .alias('h', 'help')
+    .option('d', {
+      alias: 'duration',
+      type: 'number',
+      default: 5,
+      describe: 'maximum duration in seconds per runner',
+    })
+    .option('s', {
+      alias: 'samples',
+      type: 'number',
+      default: 100,
+      describe: 'number of samples to collect per runner',
+    })
+    .option('w', {
+      alias: 'sweep-width',
+      type: 'number',
+      default: 10,
+      describe: 'width of iteration sweep',
+    })
+    .option('warm-up-iterations', {
+      type: 'number',
+      default: 100,
+      describe: 'number of warm up iterations',
+    }).argv;
+
   const modules: Array<RunnerModule> = await Promise.all(
-    process.argv.slice(2).map(async (file) => {
-      const path = await realpath(file);
+    argv._.map(async (file) => {
+      const path = await realpath(String(file));
 
       const m = await import(path);
 
       const {
-        duration = 5,
-        sweepWidth = 10,
-        samples = 100,
-        warmUpIterations = 100,
+        duration = argv['duration'],
+        sweepWidth = argv['sweepWidth'],
+        samples = argv['samples'],
+        warmUpIterations = argv['warmUpIterations'],
       } = m.options ?? {};
 
       if (duration <= 0) {
@@ -49,7 +77,7 @@ async function main() {
       }
 
       return {
-        name: m.name ?? file,
+        name: m.name ?? String(file),
         options: {
           duration,
           sweepWidth,
