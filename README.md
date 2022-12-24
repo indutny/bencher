@@ -23,22 +23,27 @@ npm install -g @indutny/bencher
 
 ## Usage
 
-benchmark.js
-
 ```js
+// benchmark.js
 export const name = 'benchmark name';
 
 // Function to benchmark
 export default () => {
-  // Make sure to return a side-effect number
-  // (possibly result of a computation) to ensure that the pure function calls
-  // are not optimized out by the runtime.
-  return 0;
+  let sum = 0;
+  for (let i = 0; i < 1e6; i++) {
+    sum += i;
+  }
+
+  // Make sure to return a side-effect value (possibly a result of the
+  // run) to ensure that the pure function calls are not optimized out by the
+  // JIT compiler.
+  return sum;
 };
 ```
 
 ```sh
-bencher benchmark.js
+$ bencher benchmark.js
+runner: 1058.6 ops/s (±4.5, p=0.05, n=98)
 ```
 
 ## LICENSE
