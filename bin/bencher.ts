@@ -107,19 +107,30 @@ async function main(): Promise<void> {
   );
 
   for (const m of modules) {
-    const paddedName = m.name + ' '.repeat(maxNameLength - m.name.length);
-    process.stdout.write(`${style(paddedName, BOLD)}: running...\n`);
+    const paddedName =
+      style(m.name, BOLD) + ':' + ' '.repeat(maxNameLength - m.name.length);
 
-    const { ops, maxError, usedSamples } = run(m);
+    // Just to reserve the line
+    process.stdout.write('\n');
 
-    process.stdout.write(PREV_LINE);
+    let ticks = 0;
+    const onTick = () => {
+      process.stdout.write(`${PREV_LINE}${paddedName} ${'.'.repeat(ticks)}\n`);
+      ticks = 1 + (ticks % 3);
+    };
+    onTick();
+
+    const { ops, maxError, usedSamples } = run(m, {
+      onTick,
+    });
+
+    const stats = style(
+      `(±${nice(maxError)}, p=${P_VALUE}, n=${usedSamples})`,
+      ITALIC,
+    );
+
     process.stdout.write(
-      `${style(paddedName, BOLD)}: ${ops.toFixed(1)} ops/s ` +
-        style(
-          `(±${maxError.toFixed(1)}, p=${P_VALUE}, n=${usedSamples})`,
-          ITALIC,
-        ) +
-        '\n',
+      `${PREV_LINE}${paddedName} ${nice(ops)} ops/sec ${stats}\n`,
     );
   }
 }
@@ -135,15 +146,25 @@ type RunResult = Readonly<{
   usedSamples: number;
 }>;
 
-function run(m: RunnerModule): RunResult {
+type RunOptions = Readonly<{
+  onTick(): void;
+}>;
+
+function run(m: RunnerModule, { onTick }: RunOptions): RunResult {
   const baseIterations = warmUp(m);
 
   const samples = new Array<Sample>();
+
+  const tickEvery = Math.round(m.options.samples / m.options.duration);
 
   for (let i = 0; i < m.options.samples; i++) {
     const iterations = baseIterations * (1 + (i % m.options.sweepWidth));
     const duration = measure(m, iterations);
     samples.push({ duration, iterations });
+
+    if (i % tickEvery === 0) {
+      onTick();
+    }
   }
 
   const { beta, confidence, outliers } = regress(m, samples);
@@ -290,6 +311,14 @@ function regress(m: RunnerModule, samples: ReadonlyArray<Sample>): Regression {
 
 function style(text: string, code: number): string {
   return `\x1b[${code}m${text}\x1b[m`;
+}
+
+function nice(n: number): string {
+  let result = n.toFixed(1);
+  for (let i = result.length - 5; i > 0; i -= 3) {
+    result = result.slice(0, i) + "'" + result.slice(i);
+  }
+  return result;
 }
 
 main().catch((err) => {
