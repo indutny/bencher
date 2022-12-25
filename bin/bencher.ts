@@ -28,7 +28,7 @@ export type RunnerOptions = Readonly<{
   duration: number; // seconds
   samples: number;
   sweepWidth: number;
-  warmUpIterations: number;
+  warmUpDuration: number;
 }>;
 
 export interface RunnerModule {
@@ -56,13 +56,13 @@ async function main(): Promise<void> {
     .option('w', {
       alias: 'sweep-width',
       type: 'number',
-      default: 10,
+      default: 5,
       describe: 'width of iteration sweep',
     })
-    .option('warm-up-iterations', {
+    .option('warm-up-duration', {
       type: 'number',
-      default: 100,
-      describe: 'number of warm up iterations',
+      default: 0.5,
+      describe: 'duration of warm up',
     }).argv;
 
   const modules: Array<RunnerModule> = await Promise.all(
@@ -75,7 +75,7 @@ async function main(): Promise<void> {
         duration = argv['duration'],
         sweepWidth = argv['sweepWidth'],
         samples = argv['samples'],
-        warmUpIterations = argv['warmUpIterations'],
+        warmUpDuration = argv['warmUpDuration'],
       } = m.options ?? {};
 
       if (duration <= 0) {
@@ -92,8 +92,8 @@ async function main(): Promise<void> {
           `${file}: options.samples must be greater than 2 * sweepWidth`,
         );
       }
-      if (warmUpIterations <= 0) {
-        throw new Error(`${file}: options.warmUpIterations must be positive`);
+      if (warmUpDuration <= 0) {
+        throw new Error(`${file}: options.warmUpDuration must be positive`);
       }
 
       return {
@@ -102,7 +102,7 @@ async function main(): Promise<void> {
           duration,
           sweepWidth,
           samples,
-          warmUpIterations,
+          warmUpDuration,
         },
         default: m.default,
       };
@@ -143,7 +143,7 @@ async function main(): Promise<void> {
 
     let warning = '';
     if (severeOutliers !== 0) {
-      warning = `${RED} severe outliers=${severeOutliers}`;
+      warning = `${RESET}${RED} severe outliers=${severeOutliers}`;
     }
 
     writeSync(
@@ -214,7 +214,9 @@ type WarmUpResult = Readonly<{
 
 function warmUp(m: RunnerModule): WarmUpResult {
   // Initial warm-up
-  for (let i = 0; i < m.options.warmUpIterations; i++) {
+  const coldDuration = measure(m, 1);
+  const warmUpIterations = m.options.warmUpDuration / coldDuration;
+  for (let i = 0; i < warmUpIterations; i++) {
     m.default();
   }
 
