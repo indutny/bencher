@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { writeSync } from 'fs';
 import { realpath } from 'fs/promises';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
@@ -10,6 +11,9 @@ const ITALIC = 3;
 
 // Go back to previous line, clear the line
 const PREV_LINE = '\x1b[F\x1b[K';
+
+const SPINNER = ['⠋', '⠙', '⠸', '⠴', '⠦', '⠇'];
+const TICK_FREQUENCY = 1 / 4;
 
 // t-distribution value for large sample count and p=0.001
 // https://www.itl.nist.gov/div898/handbook/eda/section3/eda3672.htm
@@ -111,12 +115,15 @@ async function main(): Promise<void> {
       style(m.name, BOLD) + ':' + ' '.repeat(maxNameLength - m.name.length);
 
     // Just to reserve the line
-    process.stdout.write('\n');
+    writeSync(process.stdout.fd, '\n');
 
     let ticks = 0;
     const onTick = () => {
-      process.stdout.write(`${PREV_LINE}${paddedName} ${'.'.repeat(ticks)}\n`);
-      ticks = 1 + (ticks % 3);
+      writeSync(
+        process.stdout.fd,
+        `${PREV_LINE}${paddedName} ${SPINNER[ticks]}\n`,
+      );
+      ticks = (ticks + 1) % SPINNER.length;
     };
     onTick();
 
@@ -129,7 +136,8 @@ async function main(): Promise<void> {
       ITALIC,
     );
 
-    process.stdout.write(
+    writeSync(
+      process.stdout.fd,
       `${PREV_LINE}${paddedName} ${nice(ops)} ops/sec ${stats}\n`,
     );
   }
@@ -151,19 +159,24 @@ type RunOptions = Readonly<{
 }>;
 
 function run(m: RunnerModule, { onTick }: RunOptions): RunResult {
-  const baseIterations = warmUp(m);
+  const { baseIterations, iterationTime } = warmUp(m);
 
   const samples = new Array<Sample>();
 
-  const tickEvery = Math.round(m.options.samples / m.options.duration);
+  const tickEvery = TICK_FREQUENCY / iterationTime;
 
+  let totalIterations = 0;
+  let nextTick = tickEvery;
   for (let i = 0; i < m.options.samples; i++) {
     const iterations = baseIterations * (1 + (i % m.options.sweepWidth));
     const duration = measure(m, iterations);
     samples.push({ duration, iterations });
 
-    if (i % tickEvery === 0) {
+    totalIterations += iterations;
+
+    while (totalIterations > nextTick) {
       onTick();
+      nextTick += tickEvery;
     }
   }
 
@@ -183,7 +196,12 @@ function run(m: RunnerModule, { onTick }: RunOptions): RunResult {
   };
 }
 
-function warmUp(m: RunnerModule): number {
+type WarmUpResult = Readonly<{
+  baseIterations: number;
+  iterationTime: number;
+}>;
+
+function warmUp(m: RunnerModule): WarmUpResult {
   // Initial warm-up
   for (let i = 0; i < m.options.warmUpIterations; i++) {
     m.default();
@@ -204,12 +222,13 @@ function warmUp(m: RunnerModule): number {
     duration = measure(m, Math.round(iterations));
   } while (duration < maxSampleDuration);
 
-  iterations = Math.max(
-    iterations / 2,
-    (maxSampleDuration / duration) * iterations,
+  const iterationTime = duration / Math.round(iterations);
+
+  iterations = Math.round(
+    Math.max(iterations / 2, (maxSampleDuration / duration) * iterations),
   );
 
-  return iterations;
+  return { baseIterations: iterations, iterationTime };
 }
 
 function measure(m: RunnerModule, iterations: number): number {
