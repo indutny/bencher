@@ -142,10 +142,14 @@ function warmUp(m: RunnerModule): number {
   let iterations = 1;
   let duration = 0;
   do {
-    iterations *= 1.25;
+    iterations *= 2;
     duration = measure(m, Math.round(iterations));
   } while (duration < maxSampleDuration);
-  iterations = Math.round(iterations / 1.25);
+
+  iterations = Math.max(
+    iterations / 2,
+    (maxSampleDuration / duration) * iterations,
+  );
 
   return iterations;
 }
