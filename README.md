@@ -43,7 +43,7 @@ export default () => {
 
 ```sh
 $ bencher benchmark.js
-runner: 1058.6 ops/s (±4.5, p=0.05, n=98)
+runner: 1’037.8 ops/sec (±18.8, p=0.001, n=98)
 ```
 
 ## LICENSE
