@@ -244,7 +244,7 @@ function regress(m: RunnerModule, samples: ReadonlyArray<Sample>): Regression {
   stdError = Math.sqrt(stdError);
 
   // t-distribution value for large sample count and p=0.05
-  const T_VALUE = 1.9719;
+  const T_VALUE = 1.660;
 
   return {
     alpha,
