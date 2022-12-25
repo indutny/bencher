@@ -4,6 +4,18 @@ import { realpath } from 'fs/promises';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 
+// ANSI colors
+const BOLD = 1;
+const ITALIC = 3;
+
+// Go back to previous line, clear the line
+const PREV_LINE = '\x1b[F\x1b[K';
+
+// t-distribution value for large sample count and p=0.001
+// https://www.itl.nist.gov/div898/handbook/eda/section3/eda3672.htm
+const STUDENT_T = 3.09;
+const P_VALUE = 0.001;
+
 export type RunnerOptions = Readonly<{
   duration: number; // seconds
   samples: number;
@@ -89,8 +101,26 @@ async function main(): Promise<void> {
     }),
   );
 
+  const maxNameLength = modules.reduce(
+    (len, { name }) => Math.max(len, name.length),
+    0,
+  );
+
   for (const m of modules) {
-    run(m);
+    const paddedName = m.name + ' '.repeat(maxNameLength - m.name.length);
+    process.stdout.write(`${style(paddedName, BOLD)}: running...\n`);
+
+    const { ops, maxError, usedSamples } = run(m);
+
+    process.stdout.write(PREV_LINE);
+    process.stdout.write(
+      `${style(paddedName, BOLD)}: ${ops.toFixed(1)} ops/s ` +
+        style(
+          `(±${maxError.toFixed(1)}, p=${P_VALUE}, n=${usedSamples})`,
+          ITALIC,
+        ) +
+        '\n',
+    );
   }
 }
 
@@ -99,7 +129,13 @@ type Sample = Readonly<{
   iterations: number;
 }>;
 
-function run(m: RunnerModule): void {
+type RunResult = Readonly<{
+  ops: number;
+  maxError: number;
+  usedSamples: number;
+}>;
+
+function run(m: RunnerModule): RunResult {
   const baseIterations = warmUp(m);
 
   const samples = new Array<Sample>();
@@ -110,19 +146,20 @@ function run(m: RunnerModule): void {
     samples.push({ duration, iterations });
   }
 
-  const { beta, c95, outliers } = regress(m, samples);
+  const { beta, confidence, outliers } = regress(m, samples);
 
   const ops = 1 / beta;
-  const lowOps = 1 / (beta + c95);
-  const highOps = 1 / (beta - c95);
+  const lowOps = 1 / (beta + confidence);
+  const highOps = 1 / (beta - confidence);
   const maxError = Math.max(highOps - ops, ops - lowOps);
 
   const usedSamples = samples.length - outliers;
 
-  console.log(
-    `${m.name}: ${ops.toFixed(1)} ops/s ` +
-      `(±${maxError.toFixed(1)}, p=0.05, n=${usedSamples})`,
-  );
+  return {
+    ops,
+    maxError,
+    usedSamples,
+  };
 }
 
 function warmUp(m: RunnerModule): number {
@@ -172,7 +209,7 @@ function measure(m: RunnerModule, iterations: number): number {
 type Regression = Readonly<{
   alpha: number;
   beta: number;
-  c95: number;
+  confidence: number;
   outliers: number;
 }>;
 
@@ -243,15 +280,16 @@ function regress(m: RunnerModule, samples: ReadonlyArray<Sample>): Regression {
   stdError /= betaDenom;
   stdError = Math.sqrt(stdError);
 
-  // t-distribution value for large sample count and p=0.05
-  const T_VALUE = 1.660;
-
   return {
     alpha,
     beta,
-    c95: T_VALUE * stdError,
+    confidence: STUDENT_T * stdError,
     outliers: samples.length - withoutOutliers.length,
   };
+}
+
+function style(text: string, code: number): string {
+  return `\x1b[${code}m${text}\x1b[m`;
 }
 
 main().catch((err) => {
