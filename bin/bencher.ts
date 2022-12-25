@@ -29,6 +29,7 @@ export type RunnerOptions = Readonly<{
   samples: number;
   sweepWidth: number;
   warmUpDuration: number;
+  ignoreOutliers: boolean;
 }>;
 
 export interface RunnerModule {
@@ -63,6 +64,11 @@ async function main(): Promise<void> {
       type: 'number',
       default: 0.5,
       describe: 'duration of warm up',
+    })
+    .option('ignore-outliers', {
+      alias: 'q',
+      type: 'boolean',
+      describe: "don't report severe outliers",
     }).argv;
 
   const modules: Array<RunnerModule> = await Promise.all(
@@ -76,6 +82,7 @@ async function main(): Promise<void> {
         sweepWidth = argv['sweepWidth'],
         samples = argv['samples'],
         warmUpDuration = argv['warmUpDuration'],
+        ignoreOutliers = argv['ignoreOutliers'],
       } = m.options ?? {};
 
       if (duration <= 0) {
@@ -103,6 +110,7 @@ async function main(): Promise<void> {
           sweepWidth,
           samples,
           warmUpDuration,
+          ignoreOutliers,
         },
         default: m.default,
       };
@@ -142,7 +150,7 @@ async function main(): Promise<void> {
     ];
 
     let warning = '';
-    if (severeOutliers !== 0) {
+    if (!m.options.ignoreOutliers && severeOutliers !== 0) {
       warning = `${RESET}${RED} severe outliers=${severeOutliers}`;
     }
 
