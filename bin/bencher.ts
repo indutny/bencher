@@ -6,8 +6,11 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 
 // ANSI colors
-const BOLD = 1;
-const ITALIC = 3;
+const BOLD = '\x1b[1m';
+const ITALIC = '\x1b[3m';
+const RESET = '\x1b[m';
+const GREY = '\x1b[90m';
+const RED = '\x1b[31m';
 
 // Go back to previous line, clear the line
 const PREV_LINE = '\x1b[F\x1b[K';
@@ -113,7 +116,7 @@ async function main(): Promise<void> {
 
   for (const m of modules) {
     const paddedName =
-      style(m.name, BOLD) + ':' + ' '.repeat(maxNameLength - m.name.length);
+      BOLD + m.name + RESET + ':' + ' '.repeat(maxNameLength - m.name.length);
 
     // Just to reserve the line
     writeSync(process.stdout.fd, '\n');
@@ -128,17 +131,25 @@ async function main(): Promise<void> {
     };
     onTick();
 
-    const { ops, maxError, usedSamples } = run(m, {
+    const { ops, maxError, outliers, severeOutliers } = run(m, {
       onTick,
     });
 
-    const stats =
-      '\x1b[90m' +
-      style(`(±${nice(maxError)}, p=${P_VALUE}, n=${usedSamples})`, ITALIC);
+    const stats = [
+      `±${nice(maxError)}`,
+      `p=${P_VALUE}`,
+      `o=${outliers + severeOutliers}/${m.options.samples}`,
+    ];
+
+    let warning = '';
+    if (severeOutliers !== 0) {
+      warning = `${RED} severe outliers=${severeOutliers}`;
+    }
 
     writeSync(
       process.stdout.fd,
-      `${PREV_LINE}${paddedName} ${nice(ops)} ops/sec ${stats}\n`,
+      `${PREV_LINE}${paddedName} ${nice(ops)} ops/sec ` +
+        `${GREY + ITALIC}(${stats.join(', ')})${warning}${RESET}\n`,
     );
   }
 }
@@ -151,7 +162,8 @@ type Sample = Readonly<{
 type RunResult = Readonly<{
   ops: number;
   maxError: number;
-  usedSamples: number;
+  outliers: number;
+  severeOutliers: number;
 }>;
 
 type RunOptions = Readonly<{
@@ -180,19 +192,18 @@ function run(m: RunnerModule, { onTick }: RunOptions): RunResult {
     }
   }
 
-  const { beta, confidence, outliers } = regress(m, samples);
+  const { beta, confidence, outliers, severeOutliers } = regress(m, samples);
 
   const ops = 1 / beta;
   const lowOps = 1 / (beta + confidence);
   const highOps = 1 / (beta - confidence);
   const maxError = Math.max(highOps - ops, ops - lowOps);
 
-  const usedSamples = samples.length - outliers;
-
   return {
     ops,
     maxError,
-    usedSamples,
+    outliers,
+    severeOutliers,
   };
 }
 
@@ -251,6 +262,7 @@ type Regression = Readonly<{
   beta: number;
   confidence: number;
   outliers: number;
+  severeOutliers: number;
 }>;
 
 function regress(m: RunnerModule, samples: ReadonlyArray<Sample>): Regression {
@@ -265,43 +277,48 @@ function regress(m: RunnerModule, samples: ReadonlyArray<Sample>): Regression {
     bin.push(duration);
   }
 
-  // Within each iteration bin get rid of the outliers.
-  const withoutOutliers = new Array<Sample>();
-  for (const [iterations, durations] of bins) {
+  let outliers = 0;
+  let severeOutliers = 0;
+
+  // Within each iteration bin identify the outliers for reporting purposes.
+  for (const [, durations] of bins) {
     durations.sort();
 
     const p25 = durations[Math.floor(durations.length * 0.25)] ?? -Infinity;
     const p75 = durations[Math.ceil(durations.length * 0.75)] ?? +Infinity;
     const iqr = p75 - p25;
+
     const outlierLow = p25 - iqr * 1.5;
     const outlierHigh = p75 + iqr * 1.5;
+    const badOutlierLow = p25 - iqr * 3;
+    const badOutlierHigh = p75 + iqr * 3;
 
     // Tukey's method
-    const filtered = durations.filter(
-      (d) => d >= outlierLow && d <= outlierHigh,
-    );
-
-    for (const duration of filtered) {
-      withoutOutliers.push({ iterations, duration });
+    for (const d of durations) {
+      if (d < badOutlierLow || d > badOutlierHigh) {
+        severeOutliers++;
+      } else if (d < outlierLow || d > outlierHigh) {
+        outliers++;
+      }
     }
   }
 
-  if (withoutOutliers.length < 2) {
+  if (samples.length < 2) {
     throw new Error(`${m.name}: low sample count`);
   }
 
   let meanDuration = 0;
   let meanIterations = 0;
-  for (const { duration, iterations } of withoutOutliers) {
+  for (const { duration, iterations } of samples) {
     meanDuration += duration;
     meanIterations += iterations;
   }
-  meanDuration /= withoutOutliers.length;
-  meanIterations /= withoutOutliers.length;
+  meanDuration /= samples.length;
+  meanIterations /= samples.length;
 
   let betaNum = 0;
   let betaDenom = 0;
-  for (const { duration, iterations } of withoutOutliers) {
+  for (const { duration, iterations } of samples) {
     betaNum += (duration - meanDuration) * (iterations - meanIterations);
     betaDenom += (iterations - meanIterations) ** 2;
   }
@@ -313,10 +330,10 @@ function regress(m: RunnerModule, samples: ReadonlyArray<Sample>): Regression {
   const alpha = meanDuration - beta * meanIterations;
 
   let stdError = 0;
-  for (const { duration, iterations } of withoutOutliers) {
+  for (const { duration, iterations } of samples) {
     stdError += (duration - alpha - beta * iterations) ** 2;
   }
-  stdError /= withoutOutliers.length - 2;
+  stdError /= samples.length - 2;
   stdError /= betaDenom;
   stdError = Math.sqrt(stdError);
 
@@ -324,12 +341,9 @@ function regress(m: RunnerModule, samples: ReadonlyArray<Sample>): Regression {
     alpha,
     beta,
     confidence: STUDENT_T * stdError,
-    outliers: samples.length - withoutOutliers.length,
+    outliers,
+    severeOutliers,
   };
-}
-
-function style(text: string, code: number): string {
-  return `\x1b[${code}m${text}\x1b[m`;
 }
 
 function nice(n: number): string {
