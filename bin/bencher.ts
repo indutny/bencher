@@ -12,6 +12,7 @@ const ITALIC = 3;
 // Go back to previous line, clear the line
 const PREV_LINE = '\x1b[F\x1b[K';
 
+// From https://github.com/mayuki/Kurukuru
 const SPINNER = ['⠋', '⠙', '⠸', '⠴', '⠦', '⠇'];
 const TICK_FREQUENCY = 1 / 4;
 
@@ -131,10 +132,9 @@ async function main(): Promise<void> {
       onTick,
     });
 
-    const stats = style(
-      `(±${nice(maxError)}, p=${P_VALUE}, n=${usedSamples})`,
-      ITALIC,
-    );
+    const stats =
+      '\x1b[90m' +
+      style(`(±${nice(maxError)}, p=${P_VALUE}, n=${usedSamples})`, ITALIC);
 
     writeSync(
       process.stdout.fd,
@@ -335,7 +335,7 @@ function style(text: string, code: number): string {
 function nice(n: number): string {
   let result = n.toFixed(1);
   for (let i = result.length - 5; i > 0; i -= 3) {
-    result = result.slice(0, i) + "'" + result.slice(i);
+    result = result.slice(0, i) + '’' + result.slice(i);
   }
   return result;
 }
