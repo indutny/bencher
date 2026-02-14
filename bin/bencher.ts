@@ -36,7 +36,7 @@ export interface RunnerModule {
   readonly name: string;
   readonly options: RunnerOptions;
 
-  default(): number;
+  fn(): number;
 }
 
 async function main(): Promise<void> {
@@ -71,51 +71,63 @@ async function main(): Promise<void> {
       describe: "don't report severe outliers",
     }).argv;
 
-  const modules: Array<RunnerModule> = await Promise.all(
-    argv._.map(async (file) => {
-      const path = await realpath(String(file));
+  const modules: Array<RunnerModule> = (
+    await Promise.all(
+      argv._.map(async (file) => {
+        const path = await realpath(String(file));
 
-      const m = await import(path);
+        const m = await import(path);
 
-      const {
-        duration = argv['duration'],
-        sweepWidth = argv['sweepWidth'],
-        samples = argv['samples'],
-        warmUpDuration = argv['warmUpDuration'],
-        ignoreOutliers = argv['ignoreOutliers'],
-      } = m.options ?? {};
+        const {
+          duration = argv['duration'],
+          sweepWidth = argv['sweepWidth'],
+          samples = argv['samples'],
+          warmUpDuration = argv['warmUpDuration'],
+          ignoreOutliers = argv['ignoreOutliers'],
+        } = m.options ?? {};
 
-      if (duration <= 0) {
-        throw new Error(`${file}: options.duration must be positive`);
-      }
-      if (sweepWidth <= 1) {
-        throw new Error(`${file}: options.sweepWidth must be greater than 0`);
-      }
-      if (samples <= 0) {
-        throw new Error(`${file}: options.samples must be positive`);
-      }
-      if (samples / sweepWidth < 2) {
-        throw new Error(
-          `${file}: options.samples must be greater than 2 * sweepWidth`,
+        if (duration <= 0) {
+          throw new Error(`${file}: options.duration must be positive`);
+        }
+        if (sweepWidth <= 1) {
+          throw new Error(`${file}: options.sweepWidth must be greater than 0`);
+        }
+        if (samples <= 0) {
+          throw new Error(`${file}: options.samples must be positive`);
+        }
+        if (samples / sweepWidth < 2) {
+          throw new Error(
+            `${file}: options.samples must be greater than 2 * sweepWidth`,
+          );
+        }
+        if (warmUpDuration <= 0) {
+          throw new Error(`${file}: options.warmUpDuration must be positive`);
+        }
+
+        const functions = new Array<() => number>();
+        for (const key of Object.keys(m)) {
+          if (typeof m[key] === 'function') {
+            functions.push(m[key]);
+          }
+        }
+
+        return functions.map(
+          (fn) =>
+            ({
+              name: `${file}/${fn.name}`,
+              options: {
+                duration,
+                sweepWidth,
+                samples,
+                warmUpDuration,
+                ignoreOutliers,
+              },
+              fn,
+            } satisfies RunnerModule),
         );
-      }
-      if (warmUpDuration <= 0) {
-        throw new Error(`${file}: options.warmUpDuration must be positive`);
-      }
-
-      return {
-        name: m.name ?? String(file),
-        options: {
-          duration,
-          sweepWidth,
-          samples,
-          warmUpDuration,
-          ignoreOutliers,
-        },
-        default: m.default,
-      };
-    }),
-  );
+      }),
+    )
+  ).flat();
 
   const maxNameLength = modules.reduce(
     (len, { name }) => Math.max(len, name.length),
@@ -225,7 +237,7 @@ function warmUp(m: RunnerModule): WarmUpResult {
   const coldDuration = measure(m, 1);
   const warmUpIterations = m.options.warmUpDuration / coldDuration;
   for (let i = 0; i < warmUpIterations; i++) {
-    m.default();
+    m.fn();
   }
 
   // Compute max duration per base sample
@@ -256,7 +268,7 @@ function measure(m: RunnerModule, iterations: number): number {
   let sum = 0;
   const start = process.hrtime.bigint();
   for (let i = 0; i < iterations; i++) {
-    sum += m.default();
+    sum += m.fn();
   }
   const duration = Number(process.hrtime.bigint() - start) / 1e9;
 

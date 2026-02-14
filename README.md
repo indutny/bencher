@@ -24,11 +24,8 @@ npm install -g @indutny/bencher
 ## Usage
 
 ```js
-// benchmark.js
-export const name = 'runner';
-
 // Function to benchmark
-export default () => {
+export function benchmarkName() => {
   let sum = 0;
   for (let i = 0; i < 1e6; i++) {
     sum += i;
@@ -43,7 +40,7 @@ export default () => {
 
 ```sh
 $ bencher benchmark.js
-runner: 1’037.8 ops/sec (±18.8, p=0.001, n=98)
+benchmark.js/benchmarkName: 1’037.8 ops/sec (±18.8, p=0.001, n=98)
 ```
 
 ## LICENSE
