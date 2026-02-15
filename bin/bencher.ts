@@ -33,6 +33,7 @@ export type RunnerOptions = Readonly<{
 }>;
 
 export interface RunnerModule {
+  readonly file: string;
   readonly name: string;
   readonly options: RunnerOptions;
 
@@ -104,39 +105,52 @@ async function main(): Promise<void> {
           throw new Error(`${file}: options.warmUpDuration must be positive`);
         }
 
-        const functions = new Array<() => number>();
+        const options = {
+          duration,
+          sweepWidth,
+          samples,
+          warmUpDuration,
+          ignoreOutliers,
+        };
+
+        const result = new Array<RunnerModule>();
         for (const key of Object.keys(m)) {
           if (typeof m[key] === 'function') {
-            functions.push(m[key]);
+            result.push({
+              file: String(file),
+              name: key,
+              fn: m[key],
+              options,
+            });
           }
         }
 
-        return functions.map(
-          (fn) =>
-            ({
-              name: `${file}/${fn.name}`,
-              options: {
-                duration,
-                sweepWidth,
-                samples,
-                warmUpDuration,
-                ignoreOutliers,
-              },
-              fn,
-            } satisfies RunnerModule),
-        );
+        return result;
       }),
     )
   ).flat();
 
+  modules.sort((a, b) => {
+    if (a.name === b.name) {
+      return a.file < b.file ? -1 : 1;
+    }
+    return a.name < b.name ? -1 : 1;
+  });
+
   const maxNameLength = modules.reduce(
-    (len, { name }) => Math.max(len, name.length),
+    (len, { file, name }) => Math.max(len, file.length + name.length),
     0,
   );
 
   for (const m of modules) {
     const paddedName =
-      BOLD + m.name + RESET + ':' + ' '.repeat(maxNameLength - m.name.length);
+      BOLD +
+      m.file +
+      '/' +
+      m.name +
+      RESET +
+      ':' +
+      ' '.repeat(maxNameLength - m.name.length - m.file.length);
 
     // Just to reserve the line
     writeSync(process.stdout.fd, '\n');
